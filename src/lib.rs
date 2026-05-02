@@ -5,19 +5,22 @@ use zed_extension_api::{
     LanguageServerId, LanguageServerInstallationStatus, Os, Worktree, current_platform,
     download_file, latest_github_release,
     lsp::{Completion, CompletionKind},
-    make_file_executable, register_extension, set_language_server_installation_status,
+    register_extension, set_language_server_installation_status,
 };
 
+const LANGUAGE_SERVER_REPOSITORY: &str = "grrroby/groovy-language-server";
+const LANGUAGE_SERVER_JAR: &str = "groovy-language-server-all.jar";
+
 struct GroovyExtension {
-    cached_binary_path: Option<String>,
+    cached_jar_path: Option<String>,
 }
 
 impl GroovyExtension {
-    fn language_server_binary_path(
+    fn language_server_jar_path(
         &mut self,
         language_server_id: &LanguageServerId,
     ) -> zed::Result<String> {
-        if let Some(path) = &self.cached_binary_path {
+        if let Some(path) = &self.cached_jar_path {
             if fs::metadata(path).is_ok_and(|stat| stat.is_file()) {
                 return Ok(path.clone());
             }
@@ -29,7 +32,7 @@ impl GroovyExtension {
         );
 
         let release = latest_github_release(
-            "valentinegb/groovy-language-server",
+            LANGUAGE_SERVER_REPOSITORY,
             GithubReleaseOptions {
                 require_assets: true,
                 pre_release: false,
@@ -51,16 +54,21 @@ impl GroovyExtension {
             .find(|asset| asset.name == asset_file)
             .ok_or_else(|| format!("no asset found matching {asset_file:?}"))?;
         let version_dir = format!("groovy-language-server-{}", release.version);
-        let binary_path = format!("{version_dir}/{asset_name}/groovy_language_server_wrapper");
+        let jar_path = format!("{version_dir}/{asset_name}/{LANGUAGE_SERVER_JAR}");
 
-        if !fs::metadata(&binary_path).is_ok_and(|stat| stat.is_file()) {
+        if !fs::metadata(&jar_path).is_ok_and(|stat| stat.is_file()) {
             set_language_server_installation_status(
                 language_server_id,
                 &LanguageServerInstallationStatus::Downloading,
             );
             download_file(&asset.download_url, &version_dir, DownloadedFileType::Zip)
                 .map_err(|e| format!("failed to download file: {e}"))?;
-            make_file_executable(&binary_path)?;
+
+            if !fs::metadata(&jar_path).is_ok_and(|stat| stat.is_file()) {
+                return Err(format!(
+                    "downloaded language server is missing {jar_path:?}"
+                ));
+            }
 
             let entries =
                 fs::read_dir(".").map_err(|e| format!("failed to list working directory {e}"))?;
@@ -74,9 +82,9 @@ impl GroovyExtension {
             }
         }
 
-        self.cached_binary_path = Some(binary_path.clone());
+        self.cached_jar_path = Some(jar_path.clone());
 
-        Ok(binary_path)
+        Ok(jar_path)
     }
 }
 
@@ -86,7 +94,7 @@ impl Extension for GroovyExtension {
         Self: Sized,
     {
         Self {
-            cached_binary_path: None,
+            cached_jar_path: None,
         }
     }
 
@@ -96,8 +104,11 @@ impl Extension for GroovyExtension {
         _worktree: &Worktree,
     ) -> zed::Result<zed::Command> {
         Ok(zed::Command {
-            command: self.language_server_binary_path(language_server_id)?,
-            args: Vec::new(),
+            command: "java".into(),
+            args: vec![
+                "-jar".into(),
+                self.language_server_jar_path(language_server_id)?,
+            ],
             env: Vec::new(),
         })
     }
