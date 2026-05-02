@@ -5,7 +5,7 @@ use zed_extension_api::{
     LanguageServerId, LanguageServerInstallationStatus, Os, Worktree, current_platform,
     download_file, latest_github_release,
     lsp::{Completion, CompletionKind},
-    register_extension, set_language_server_installation_status,
+    make_file_executable, register_extension, set_language_server_installation_status,
 };
 
 const LANGUAGE_SERVER_REPOSITORY: &str = "grrroby/groovy-language-server";
@@ -112,11 +112,29 @@ impl Extension for GroovyExtension {
                 args: vec!["/C".into(), "java".into(), "-jar".into(), jar_path],
                 env: Vec::new(),
             }),
-            Os::Mac | Os::Linux => Ok(zed::Command {
-                command: "/usr/bin/env".into(),
-                args: vec!["java".into(), "-jar".into(), jar_path],
-                env: Vec::new(),
-            }),
+            Os::Mac | Os::Linux => {
+                let (server_dir, _) = jar_path
+                    .rsplit_once('/')
+                    .ok_or_else(|| format!("invalid language server jar path {jar_path:?}"))?;
+                let launcher_path = format!("{server_dir}/groovy-language-server");
+
+                if !fs::metadata(&launcher_path).is_ok_and(|stat| stat.is_file()) {
+                    fs::write(
+                        &launcher_path,
+                        format!(
+                            "#!/bin/sh\nexec /usr/bin/env java -jar \"$(dirname \"$0\")/{LANGUAGE_SERVER_JAR}\"\n"
+                        ),
+                    )
+                    .map_err(|e| format!("failed to write language server launcher: {e}"))?;
+                    make_file_executable(&launcher_path)?;
+                }
+
+                Ok(zed::Command {
+                    command: launcher_path,
+                    args: Vec::new(),
+                    env: Vec::new(),
+                })
+            }
         }
     }
 
