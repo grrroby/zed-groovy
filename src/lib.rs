@@ -103,14 +103,21 @@ impl Extension for GroovyExtension {
         language_server_id: &LanguageServerId,
         _worktree: &Worktree,
     ) -> zed::Result<zed::Command> {
-        Ok(zed::Command {
-            command: "java".into(),
-            args: vec![
-                "-jar".into(),
-                self.language_server_jar_path(language_server_id)?,
-            ],
-            env: Vec::new(),
-        })
+        let jar_path = self.language_server_jar_path(language_server_id)?;
+        let (platform, _arch) = current_platform();
+
+        match platform {
+            Os::Windows => Ok(zed::Command {
+                command: "cmd.exe".into(),
+                args: vec!["/C".into(), "java".into(), "-jar".into(), jar_path],
+                env: Vec::new(),
+            }),
+            Os::Mac | Os::Linux => Ok(zed::Command {
+                command: "/usr/bin/env".into(),
+                args: vec!["java".into(), "-jar".into(), jar_path],
+                env: Vec::new(),
+            }),
+        }
     }
 
     fn label_for_completion(
