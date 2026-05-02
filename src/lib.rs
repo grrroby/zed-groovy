@@ -6,6 +6,7 @@ use zed_extension_api::{
     download_file, latest_github_release,
     lsp::{Completion, CompletionKind},
     make_file_executable, register_extension, set_language_server_installation_status,
+    settings::LspSettings,
 };
 
 const LANGUAGE_SERVER_REPOSITORY: &str = "grrroby/groovy-language-server";
@@ -136,6 +137,14 @@ impl Extension for GroovyExtension {
                 })
             }
         }
+    }
+
+    fn language_server_workspace_configuration(
+        &mut self,
+        _language_server_id: &LanguageServerId,
+        worktree: &Worktree,
+    ) -> zed::Result<Option<zed::serde_json::Value>> {
+        Ok(LspSettings::for_worktree("groovy", worktree)?.settings)
     }
 
     fn label_for_completion(
